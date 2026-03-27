@@ -2,8 +2,17 @@ import { describe, it, expect, afterEach } from "vitest";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { isRetryableHttpStatus, normalizeRetryConfig, readLastJsonlEntry } from "../utils.js";
+import {
+  isRetryableHttpStatus,
+  normalizeRetryConfig,
+  readLastJsonlEntry,
+  shellEscape,
+  escapeAppleScript,
+  validateUrl,
+  resolveProjectIdForSessionId,
+} from "../utils.js";
 import { parsePrFromUrl } from "../utils/pr.js";
+import type { OrchestratorConfig } from "../types.js";
 
 describe("readLastJsonlEntry", () => {
   let tmpDir: string;
@@ -137,5 +146,154 @@ describe("parsePrFromUrl", () => {
 
   it("returns null when the URL has no PR number", () => {
     expect(parsePrFromUrl("https://example.com/foo/bar/pull/not-a-number")).toBeNull();
+  });
+});
+
+describe("shellEscape", () => {
+  it("wraps simple string in single quotes", () => {
+    expect(shellEscape("hello")).toBe("'hello'");
+  });
+
+  it("escapes embedded single quotes", () => {
+    expect(shellEscape("it's")).toBe("'it'\\''s'");
+    expect(shellEscape("a'b'c")).toBe("'a'\\''b'\\''c'");
+  });
+
+  it("handles empty string", () => {
+    expect(shellEscape("")).toBe("''");
+  });
+
+  it("handles string with only single quotes", () => {
+    // For input "'''" (3 single quotes):
+    // Each ' becomes '\'' (close, escaped quote, reopen)
+    // So: ' + '\'''\'''\'' + ' = ''\'''\'''\'''
+    expect(shellEscape("'''")).toBe("''\\'''\\'''\\'''");
+  });
+
+  it("handles strings with spaces and special characters", () => {
+    expect(shellEscape("hello world")).toBe("'hello world'");
+    expect(shellEscape("$PATH")).toBe("'$PATH'");
+    expect(shellEscape('echo "test"')).toBe("'echo \"test\"'");
+  });
+
+  it("handles newlines and tabs", () => {
+    expect(shellEscape("line1\nline2")).toBe("'line1\nline2'");
+    expect(shellEscape("col1\tcol2")).toBe("'col1\tcol2'");
+  });
+});
+
+describe("escapeAppleScript", () => {
+  it("returns simple string unchanged", () => {
+    expect(escapeAppleScript("hello")).toBe("hello");
+  });
+
+  it("escapes backslashes", () => {
+    expect(escapeAppleScript("path\\to\\file")).toBe("path\\\\to\\\\file");
+  });
+
+  it("escapes double quotes", () => {
+    expect(escapeAppleScript('say "hello"')).toBe('say \\"hello\\"');
+  });
+
+  it("escapes both backslashes and double quotes", () => {
+    expect(escapeAppleScript('path\\to\\"file"')).toBe('path\\\\to\\\\\\"file\\"');
+  });
+
+  it("handles empty string", () => {
+    expect(escapeAppleScript("")).toBe("");
+  });
+});
+
+describe("validateUrl", () => {
+  it("accepts https URLs", () => {
+    expect(() => validateUrl("https://example.com", "test")).not.toThrow();
+    expect(() => validateUrl("https://api.github.com/repos", "test")).not.toThrow();
+  });
+
+  it("accepts http URLs", () => {
+    expect(() => validateUrl("http://localhost:3000", "test")).not.toThrow();
+    expect(() => validateUrl("http://example.com/path", "test")).not.toThrow();
+  });
+
+  it("throws for invalid URLs", () => {
+    expect(() => validateUrl("ftp://example.com", "myPlugin")).toThrow(
+      '[myPlugin] Invalid url: must be http(s), got "ftp://example.com"',
+    );
+    expect(() => validateUrl("ws://socket.example.com", "webhook")).toThrow(
+      '[webhook] Invalid url: must be http(s), got "ws://socket.example.com"',
+    );
+    expect(() => validateUrl("example.com", "test")).toThrow();
+  });
+});
+
+describe("resolveProjectIdForSessionId", () => {
+  const mockConfig: OrchestratorConfig = {
+    configPath: "/tmp/test/agent-orchestrator.yaml",
+    readyThresholdMs: 300000,
+    defaults: {
+      runtime: "tmux",
+      agent: "claude-code",
+      workspace: "worktree",
+      notifiers: [],
+    },
+    projects: {
+      frontend: {
+        name: "Frontend",
+        repo: "owner/frontend",
+        path: "/path/to/frontend",
+        defaultBranch: "main",
+        sessionPrefix: "fe",
+      },
+      backend: {
+        name: "Backend",
+        repo: "owner/backend",
+        path: "/path/to/backend",
+        defaultBranch: "main",
+        sessionPrefix: "be",
+      },
+      api: {
+        name: "API",
+        repo: "owner/api",
+        path: "/path/to/api",
+        defaultBranch: "main",
+        sessionPrefix: "api",
+      },
+    },
+    notifiers: {},
+    notificationRouting: {
+      urgent: [],
+      action: [],
+      warning: [],
+      info: [],
+    },
+    reactions: {},
+  };
+
+  it("resolves project by exact prefix match", () => {
+    expect(resolveProjectIdForSessionId(mockConfig, "fe")).toBe("frontend");
+    expect(resolveProjectIdForSessionId(mockConfig, "be")).toBe("backend");
+    expect(resolveProjectIdForSessionId(mockConfig, "api")).toBe("api");
+  });
+
+  it("resolves project by prefix with session number", () => {
+    expect(resolveProjectIdForSessionId(mockConfig, "fe-1")).toBe("frontend");
+    expect(resolveProjectIdForSessionId(mockConfig, "be-42")).toBe("backend");
+    expect(resolveProjectIdForSessionId(mockConfig, "api-123")).toBe("api");
+  });
+
+  it("resolves project with hyphenated suffix", () => {
+    expect(resolveProjectIdForSessionId(mockConfig, "fe-feature-branch")).toBe("frontend");
+  });
+
+  it("returns undefined for unknown session prefix", () => {
+    expect(resolveProjectIdForSessionId(mockConfig, "unknown-1")).toBeUndefined();
+    expect(resolveProjectIdForSessionId(mockConfig, "x")).toBeUndefined();
+  });
+
+  it("returns undefined for partial prefix match without hyphen", () => {
+    // "f" is not "fe" and doesn't start with "fe-"
+    expect(resolveProjectIdForSessionId(mockConfig, "f")).toBeUndefined();
+    // "fee" is not "fe" and doesn't start with "fe-"
+    expect(resolveProjectIdForSessionId(mockConfig, "fee")).toBeUndefined();
   });
 });
