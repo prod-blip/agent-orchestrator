@@ -324,7 +324,7 @@ describe("spawn", () => {
     const sm = createSessionManager({ config, registry: mockRegistry });
 
     await expect(sm.spawn({ projectId: "my-app" })).rejects.toThrow(
-      "Project is paused due to model rate limit until",
+      "Project is paused due to model rate limit for",
     );
     expect(mockRuntime.create).not.toHaveBeenCalled();
   });
@@ -2457,7 +2457,7 @@ describe("send", () => {
     const sm = createSessionManager({ config, registry: mockRegistry });
 
     await expect(sm.send("app-1", "Fix the CI failures")).rejects.toThrow(
-      "Project is paused due to model rate limit until",
+      "Project is paused due to model rate limit for",
     );
     expect(mockRuntime.sendMessage).not.toHaveBeenCalled();
   });
@@ -2942,7 +2942,7 @@ describe("spawnOrchestrator", () => {
     const sm = createSessionManager({ config, registry: mockRegistry });
 
     await expect(sm.spawnOrchestrator({ projectId: "my-app" })).rejects.toThrow(
-      "Project is paused due to model rate limit until",
+      "Project is paused due to model rate limit for",
     );
     expect(mockRuntime.create).not.toHaveBeenCalled();
   });

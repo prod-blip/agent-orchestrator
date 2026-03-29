@@ -74,6 +74,7 @@ import {
 import { sessionFromMetadata } from "./utils/session-from-metadata.js";
 import { safeJsonParse } from "./utils/validation.js";
 import { resolveAgentSelection, resolveSessionRole } from "./agent-selection.js";
+import { formatDuration } from "./utils.js";
 
 const execFileAsync = promisify(execFile);
 const OPENCODE_DISCOVERY_TIMEOUT_MS = 2_000;
@@ -899,7 +900,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     const pause = getProjectPause(project);
     if (pause) {
       throw new Error(
-        `Project is paused due to model rate limit until ${pause.until.toISOString()} (${pause.reason}; source: ${pause.sourceSessionId})`,
+        `Project is paused due to model rate limit for ${formatDuration(pause.until.getTime() - Date.now())} (${pause.reason}; source: ${pause.sourceSessionId})`,
       );
     }
 
@@ -1202,7 +1203,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     const pause = getProjectPause(project);
     if (pause) {
       throw new Error(
-        `Project is paused due to model rate limit until ${pause.until.toISOString()} (${pause.reason}; source: ${pause.sourceSessionId})`,
+        `Project is paused due to model rate limit for ${formatDuration(pause.until.getTime() - Date.now())} (${pause.reason}; source: ${pause.sourceSessionId})`,
       );
     }
 
@@ -1790,7 +1791,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     const orchestratorId = `${project.sessionPrefix}-orchestrator`;
     if (pause && sessionId !== orchestratorId) {
       throw new Error(
-        `Project is paused due to model rate limit until ${pause.until.toISOString()} (${pause.reason}; source: ${pause.sourceSessionId})`,
+        `Project is paused due to model rate limit for ${formatDuration(pause.until.getTime() - Date.now())} (${pause.reason}; source: ${pause.sourceSessionId})`,
       );
     }
 

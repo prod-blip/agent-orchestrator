@@ -2,7 +2,12 @@ import { describe, it, expect, afterEach } from "vitest";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { isRetryableHttpStatus, normalizeRetryConfig, readLastJsonlEntry } from "../utils.js";
+import {
+  isRetryableHttpStatus,
+  normalizeRetryConfig,
+  readLastJsonlEntry,
+  formatDuration,
+} from "../utils.js";
 import { parsePrFromUrl } from "../utils/pr.js";
 
 describe("readLastJsonlEntry", () => {
@@ -137,5 +142,41 @@ describe("parsePrFromUrl", () => {
 
   it("returns null when the URL has no PR number", () => {
     expect(parsePrFromUrl("https://example.com/foo/bar/pull/not-a-number")).toBeNull();
+  });
+});
+
+describe("formatDuration", () => {
+  it("formats seconds", () => {
+    expect(formatDuration(5000)).toBe("5s");
+    expect(formatDuration(30000)).toBe("30s");
+    expect(formatDuration(59000)).toBe("59s");
+  });
+
+  it("formats minutes", () => {
+    expect(formatDuration(60000)).toBe("1m");
+    expect(formatDuration(120000)).toBe("2m");
+    expect(formatDuration(300000)).toBe("5m");
+    expect(formatDuration(3599000)).toBe("59m");
+  });
+
+  it("formats hours", () => {
+    expect(formatDuration(3600000)).toBe("1h");
+    expect(formatDuration(7200000)).toBe("2h");
+    expect(formatDuration(86399000)).toBe("23h");
+  });
+
+  it("formats days", () => {
+    expect(formatDuration(86400000)).toBe("1d");
+    expect(formatDuration(172800000)).toBe("2d");
+    expect(formatDuration(604800000)).toBe("7d");
+  });
+
+  it("handles zero duration", () => {
+    expect(formatDuration(0)).toBe("0s");
+  });
+
+  it("handles negative duration by using absolute value", () => {
+    expect(formatDuration(-5000)).toBe("5s");
+    expect(formatDuration(-60000)).toBe("1m");
   });
 });

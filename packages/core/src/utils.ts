@@ -6,6 +6,23 @@ import { open, stat } from "node:fs/promises";
 import type { OrchestratorConfig } from "./types.js";
 
 /**
+ * Format a duration in milliseconds to a human-readable string.
+ * Examples: "5s", "3m", "2h", "1d"
+ *
+ * @param ms - Duration in milliseconds (can be negative)
+ * @returns Human-readable duration string
+ */
+export function formatDuration(ms: number): string {
+  const absMs = Math.abs(ms);
+  const seconds = Math.floor(absMs / 1000);
+
+  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h`;
+  return `${Math.floor(seconds / 86400)}d`;
+}
+
+/**
  * POSIX-safe shell escaping: wraps value in single quotes,
  * escaping any embedded single quotes as '\\'' .
  *
