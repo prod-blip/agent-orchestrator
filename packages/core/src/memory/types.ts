@@ -128,12 +128,13 @@ export const MAX_TRANSCRIPT_BYTES = 512 * 1024; // 512KB
 /** Extraction session timeout in milliseconds */
 export const EXTRACTION_TIMEOUT_MS = 2 * 60 * 1000; // 2 minutes
 
-/** Terminal statuses that trigger memory extraction */
+/** Statuses that trigger memory extraction */
 export const MEMORY_TRIGGER_STATUSES = new Set([
   "merged",
   "done",
   "cleanup",
   "errored",
+  "pr_open", // Extract memory when PR is created (agent's coding work is done)
 ]);
 
 /** Statuses that should NOT trigger memory extraction (incomplete work) */
