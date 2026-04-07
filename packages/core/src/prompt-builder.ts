@@ -1,12 +1,14 @@
 /**
  * Prompt Builder — composes layered prompts for agent sessions.
  *
- * Three layers:
+ * Five layers:
  *   1. BASE_AGENT_PROMPT — constant instructions about session lifecycle, git workflow, PR handling
  *   2. Config-derived context — project name, repo, default branch, tracker info, reaction rules
- *   3. User rules — inline agentRules and/or agentRulesFile content
+ *   3. Project memory — accumulated knowledge from previous sessions (optional)
+ *   4. User rules — inline agentRules and/or agentRulesFile content
+ *   5. Decomposition context — task hierarchy and siblings (optional)
  *
- * buildPrompt() always returns the AO base guidance and project context so
+ * buildPrompt() always returns the AO base guidance plus project context so
  * bare launches still know about AO-specific commands such as PR claiming.
  */
 
@@ -64,6 +66,13 @@ export interface PromptBuildConfig {
 
   /** Decomposition context — sibling task descriptions (from decomposer) */
   siblings?: string[];
+
+  /**
+   * Formatted project memory content to inject.
+   * Pre-formatted by formatProjectMemoryForPrompt() from the memory module.
+   * When provided, inserted between config context and user rules.
+   */
+  projectMemory?: string | null;
 }
 
 // =============================================================================
@@ -160,12 +169,17 @@ export function buildPrompt(config: PromptBuildConfig): string {
   // Layer 2: Config-derived context
   sections.push(buildConfigLayer(config));
 
-  // Layer 3: User rules
+  // Layer 3: Project memory (accumulated knowledge from previous sessions)
+  if (config.projectMemory) {
+    sections.push(config.projectMemory);
+  }
+
+  // Layer 4: User rules
   if (userRules) {
     sections.push(`## Project Rules\n${userRules}`);
   }
 
-  // Layer 4: Decomposition context (lineage + siblings)
+  // Layer 5: Decomposition context (lineage + siblings)
   if (config.lineage && config.lineage.length > 0) {
     const hierarchy = config.lineage.map((desc, i) => `${"  ".repeat(i)}${i}. ${desc}`);
     // Add current task marker using issueId or last lineage entry

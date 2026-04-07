@@ -37,9 +37,16 @@ import {
   type CICheck,
 } from "./types.js";
 import { updateMetadata } from "./metadata.js";
-import { getSessionsDir } from "./paths.js";
+import { getSessionsDir, getProjectBaseDir } from "./paths.js";
 import { createCorrelationId, createProjectObserver } from "./observability.js";
 import { resolveAgentSelection, resolveSessionRole } from "./agent-selection.js";
+import {
+  extractMemory,
+  sessionMemoryExists,
+  consolidateAndWriteProjectMemory,
+  MEMORY_TRIGGER_STATUSES,
+  MEMORY_SKIP_STATUSES,
+} from "./memory/index.js";
 
 /** Parse a duration string like "10m", "30s", "1h" to milliseconds. */
 function parseDuration(str: string): number {
@@ -1180,6 +1187,90 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     }
   }
 
+  /**
+   * Trigger memory extraction for a session that reached a terminal state.
+   * Runs asynchronously (fire-and-forget) to avoid blocking the polling loop.
+   */
+  async function triggerMemoryExtraction(
+    session: Session,
+    status: SessionStatus,
+  ): Promise<void> {
+    const project = config.projects[session.projectId];
+    if (!project) return;
+
+    const sessionsDir = getSessionsDir(config.configPath, project.path);
+    const projectBaseDir = getProjectBaseDir(config.configPath, project.path);
+
+    // Skip if memory already exists
+    if (sessionMemoryExists(sessionsDir, session.id)) {
+      return;
+    }
+
+    // Determine agent name
+    const agentName = resolveAgentSelection({
+      role: resolveSessionRole(session.id, session.metadata, project.sessionPrefix),
+      project,
+      defaults: config.defaults,
+      persistedAgent: session.metadata["agent"],
+    }).agentName;
+
+    const correlationId = createCorrelationId("memory-extraction");
+
+    try {
+      const result = await extractMemory({
+        agentName,
+        sessionId: session.id,
+        status,
+        projectName: project.name,
+        projectPath: project.path,
+        workspacePath: session.workspacePath,
+        agentSessionId: session.agentInfo?.agentSessionId ?? undefined,
+      });
+
+      if (result.success && result.memory) {
+        // Consolidate into project memory
+        await consolidateAndWriteProjectMemory(projectBaseDir, result.memory);
+
+        observer.recordOperation({
+          metric: "lifecycle_poll",
+          operation: "memory.extraction",
+          outcome: "success",
+          correlationId,
+          projectId: session.projectId,
+          sessionId: session.id,
+          level: "info",
+          data: {
+            transcriptPath: result.transcriptPath,
+            factCount: result.memory.facts.length,
+            entityCount: Object.keys(result.memory.entities).length,
+          },
+        });
+      } else {
+        observer.recordOperation({
+          metric: "lifecycle_poll",
+          operation: "memory.extraction",
+          outcome: "failure",
+          correlationId,
+          projectId: session.projectId,
+          sessionId: session.id,
+          level: "warn",
+          reason: result.error ?? "Unknown error",
+        });
+      }
+    } catch (err) {
+      observer.recordOperation({
+        metric: "lifecycle_poll",
+        operation: "memory.extraction",
+        outcome: "failure",
+        correlationId,
+        projectId: session.projectId,
+        sessionId: session.id,
+        level: "warn",
+        reason: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
   /** Poll a single session and handle state transitions. */
   async function checkSession(session: Session): Promise<void> {
     // Use tracked state if available; otherwise use the persisted metadata status
@@ -1262,6 +1353,18 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           });
           await notifyHuman(event, priority);
         }
+      }
+
+      // Trigger memory extraction on terminal state transition
+      // Only extract for statuses that indicate completed work (merged, done, cleanup, errored)
+      // Skip killed/terminated as they represent incomplete sessions
+      if (
+        MEMORY_TRIGGER_STATUSES.has(newStatus) &&
+        !MEMORY_TRIGGER_STATUSES.has(oldStatus) &&
+        !MEMORY_SKIP_STATUSES.has(newStatus)
+      ) {
+        // Fire-and-forget — don't block the polling loop
+        void triggerMemoryExtraction(session, newStatus);
       }
     } else {
       // No transition but track current state

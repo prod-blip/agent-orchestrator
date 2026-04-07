@@ -54,6 +54,7 @@ import {
   reserveSessionId,
 } from "./metadata.js";
 import { buildPrompt } from "./prompt-builder.js";
+import { readProjectMemory, formatProjectMemoryForPrompt } from "./memory/index.js";
 import {
   getSessionsDir,
   getWorktreesDir,
@@ -1050,6 +1051,18 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       }
     }
 
+    // Load project memory for prompt injection
+    let projectMemory: string | null = null;
+    try {
+      const projectBaseDir = getProjectBaseDir(config.configPath, project.path);
+      const memory = await readProjectMemory(projectBaseDir);
+      if (memory && (memory.facts.length > 0 || Object.keys(memory.entities).length > 0)) {
+        projectMemory = formatProjectMemoryForPrompt(memory);
+      }
+    } catch {
+      // Non-fatal: continue without project memory
+    }
+
     const composedPrompt = buildPrompt({
       project,
       projectId: spawnConfig.projectId,
@@ -1058,6 +1071,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       userPrompt: spawnConfig.prompt,
       lineage: spawnConfig.lineage,
       siblings: spawnConfig.siblings,
+      projectMemory,
     });
 
     // Get agent launch config and create runtime — clean up workspace on failure

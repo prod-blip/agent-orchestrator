@@ -192,3 +192,55 @@ export type {
   DetectedProjectInfo,
   GenerateConfigOptions,
 } from "./config-generator.js";
+
+// Memory system — session and project memory for knowledge persistence
+export {
+  // Types and schemas
+  SessionMemorySchema,
+  ProjectMemorySchema,
+  ObservationSchema,
+  ExtractionOutputSchema,
+  MEMORY_VERSION,
+  MAX_PROJECT_OBSERVATIONS,
+  MAX_TRANSCRIPT_BYTES,
+  EXTRACTION_TIMEOUT_MS,
+  MEMORY_TRIGGER_STATUSES,
+  MEMORY_SKIP_STATUSES,
+  // Session memory
+  getSessionMemoryPath,
+  sessionMemoryExists,
+  readSessionMemory,
+  writeSessionMemory,
+  createSessionMemory,
+  listSessionMemories,
+  // Project memory
+  getProjectMemoryPath,
+  projectMemoryExists,
+  readProjectMemory,
+  writeProjectMemory,
+  createEmptyProjectMemory,
+  consolidateMemory,
+  consolidateAndWriteProjectMemory,
+  formatProjectMemoryForPrompt,
+  // Transcript reading
+  readClaudeCodeTranscript,
+  readCodexTranscript,
+  readAgentTranscript,
+  formatTranscriptForExtraction,
+  // Prompt building
+  buildExtractionPrompt,
+  buildMinimalExtractionPrompt,
+  // Extraction
+  extractMemory,
+  isExtractionAvailable,
+} from "./memory/index.js";
+export type {
+  SessionMemory,
+  ProjectMemory,
+  Observation,
+  ExtractionOutput,
+  TranscriptEntry,
+  TranscriptReadResult,
+  ExtractionConfig,
+  ExtractionResult,
+} from "./memory/index.js";

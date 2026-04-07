@@ -202,6 +202,66 @@ describe("buildPrompt", () => {
     expect(result).toContain("ci-failed");
     expect(result).not.toContain("approved-and-green");
   });
+
+  it("includes project memory when provided", () => {
+    const projectMemory = `## Project Memory
+
+This project has accumulated knowledge from 5 previous sessions:
+
+### Project Knowledge
+- Uses pnpm workspaces
+- Tests are required for all changes
+
+### Key References
+- **test command**: pnpm test`;
+
+    const result = buildPrompt({
+      project,
+      projectId: "test-app",
+      projectMemory,
+    });
+    expect(result).toContain("## Project Memory");
+    expect(result).toContain("Uses pnpm workspaces");
+    expect(result).toContain("**test command**: pnpm test");
+  });
+
+  it("places project memory after config context and before user rules", () => {
+    project.agentRules = "Custom project rule.";
+    const projectMemory = "## Project Memory\nAccumulated knowledge here.";
+
+    const result = buildPrompt({
+      project,
+      projectId: "test-app",
+      projectMemory,
+      userPrompt: "Additional instruction.",
+    });
+
+    const memoryIdx = result.indexOf("## Project Memory");
+    const contextIdx = result.indexOf("## Project Context");
+    const rulesIdx = result.indexOf("## Project Rules");
+    const instructionsIdx = result.indexOf("## Additional Instructions");
+
+    // Order: context < memory < rules < instructions
+    expect(contextIdx).toBeLessThan(memoryIdx);
+    expect(memoryIdx).toBeLessThan(rulesIdx);
+    expect(rulesIdx).toBeLessThan(instructionsIdx);
+  });
+
+  it("skips project memory when null or empty", () => {
+    const result1 = buildPrompt({
+      project,
+      projectId: "test-app",
+      projectMemory: null,
+    });
+    const result2 = buildPrompt({
+      project,
+      projectId: "test-app",
+      projectMemory: "",
+    });
+
+    expect(result1).not.toContain("## Project Memory");
+    expect(result2).not.toContain("## Project Memory");
+  });
 });
 
 describe("BASE_AGENT_PROMPT", () => {
