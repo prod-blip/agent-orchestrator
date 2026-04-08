@@ -324,6 +324,13 @@ export async function readAgentTranscript(
 ): Promise<TranscriptReadResult | null> {
   switch (agentName) {
     case "claude-code":
+      // Claude Code stores transcripts under the actual working directory.
+      // For worktree-based sessions, this is workspacePath, not projectPath.
+      // Try workspacePath first (worktree), fall back to projectPath (original repo).
+      if (workspacePath) {
+        const result = await readClaudeCodeTranscript(workspacePath, agentSessionId, maxBytes);
+        if (result) return result;
+      }
       return readClaudeCodeTranscript(projectPath, agentSessionId, maxBytes);
 
     case "codex":
