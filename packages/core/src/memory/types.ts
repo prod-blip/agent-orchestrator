@@ -134,7 +134,15 @@ export const MEMORY_TRIGGER_STATUSES = new Set([
   "done",
   "cleanup",
   "errored",
-  "pr_open", // Extract memory when PR is created (agent's coding work is done)
+  // All PR-related statuses — agent's coding work is done when PR exists.
+  // The lifecycle manager may skip pr_open if CI fails between polls,
+  // so we trigger on any PR status to ensure memory is extracted.
+  "pr_open",
+  "ci_failed",
+  "review_pending",
+  "changes_requested",
+  "approved",
+  "mergeable",
 ]);
 
 /** Statuses that should NOT trigger memory extraction (incomplete work) */
