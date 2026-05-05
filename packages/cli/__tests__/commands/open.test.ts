@@ -1,10 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-const { mockExec, mockConfigRef, mockTmux } = vi.hoisted(() => ({
-  mockExec: vi.fn(),
-  mockTmux: vi.fn(),
-  mockConfigRef: { current: null as Record<string, unknown> | null },
-}));
+const { mockExec, mockConfigRef, mockTmux, mockSessionManager, mockPromptGroupMultiselect } =
+  vi.hoisted(() => ({
+    mockExec: vi.fn(),
+    mockTmux: vi.fn(),
+    mockSessionManager: { list: vi.fn() },
+    mockPromptGroupMultiselect: vi.fn(),
+    mockConfigRef: { current: null as Record<string, unknown> | null },
+  }));
 
 vi.mock("../../src/lib/shell.js", () => ({
   exec: mockExec,
@@ -24,13 +27,71 @@ vi.mock("@aoagents/ao-core", () => ({
   loadConfig: () => mockConfigRef.current,
 }));
 
+vi.mock("../../src/lib/create-session-manager.js", () => ({
+  getSessionManager: async () => mockSessionManager,
+}));
+
+vi.mock("../../src/lib/prompts.js", () => ({
+  promptGroupMultiselect: mockPromptGroupMultiselect,
+}));
+
 import { Command } from "commander";
 import { registerOpen } from "../../src/commands/open.js";
 
 let program: Command;
 let consoleSpy: ReturnType<typeof vi.spyOn>;
+let originalStdinIsTTY: boolean | undefined;
+let originalStdoutIsTTY: boolean | undefined;
+
+function setTty(stdin: boolean | undefined, stdout: boolean | undefined): void {
+  Object.defineProperty(process.stdin, "isTTY", { value: stdin, configurable: true });
+  Object.defineProperty(process.stdout, "isTTY", { value: stdout, configurable: true });
+}
+
+function makeSession(overrides: Record<string, unknown>): Record<string, unknown> {
+  return {
+    id: "app-1",
+    projectId: "my-app",
+    status: "working",
+    activity: "active",
+    activitySignal: { state: "valid", activity: "active", source: "runtime" },
+    lifecycle: {
+      version: 2,
+      session: {
+        kind: "worker",
+        state: "working",
+        reason: "task_in_progress",
+        startedAt: null,
+        completedAt: null,
+        terminatedAt: null,
+        lastTransitionAt: new Date().toISOString(),
+      },
+      pr: { state: "none", reason: "not_created", number: null, url: null, lastObservedAt: null },
+      runtime: {
+        state: "alive",
+        reason: "process_running",
+        lastObservedAt: null,
+        handle: null,
+        tmuxName: null,
+      },
+    },
+    branch: "main",
+    issueId: "1",
+    pr: null,
+    workspacePath: null,
+    runtimeHandle: { id: "app-1", kind: "tmux" },
+    agentInfo: null,
+    createdAt: new Date(Date.now() - 10_000),
+    lastActivityAt: new Date(Date.now() - 5_000),
+    metadata: {},
+    ...overrides,
+  };
+}
 
 beforeEach(() => {
+  originalStdinIsTTY = process.stdin.isTTY;
+  originalStdoutIsTTY = process.stdout.isTTY;
+  setTty(undefined, undefined);
   mockConfigRef.current = {
     dataDir: "/tmp/ao",
     worktreeDir: "/tmp/wt",
@@ -73,9 +134,12 @@ beforeEach(() => {
   mockExec.mockReset();
   mockTmux.mockReset();
   mockExec.mockResolvedValue({ stdout: "", stderr: "" });
+  mockSessionManager.list.mockReset();
+  mockPromptGroupMultiselect.mockReset();
 });
 
 afterEach(() => {
+  setTty(originalStdinIsTTY, originalStdoutIsTTY);
   vi.restoreAllMocks();
 });
 
@@ -105,6 +169,67 @@ describe("open command", () => {
 
     const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
     expect(output).toContain("Opening 1 session");
+  });
+
+  it("opens all sessions without prompting for non-TTY no-arg usage", async () => {
+    setTty(false, false);
+    mockTmux.mockImplementation(async (...args: string[]) => {
+      if (args[0] === "list-sessions") return "app-1\nbackend-1";
+      return null;
+    });
+
+    await program.parseAsync(["node", "test", "open"]);
+
+    expect(mockPromptGroupMultiselect).not.toHaveBeenCalled();
+    expect(mockSessionManager.list).not.toHaveBeenCalled();
+    const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(output).toContain("Opening 2 sessions");
+  });
+
+  it("prompts with grouped sessions and opens selected sessions for TTY no-arg usage", async () => {
+    setTty(true, true);
+    const first = makeSession({
+      id: "app-1",
+      projectId: "my-app",
+      branch: "feature/app",
+      pr: { number: 12, url: "https://github.com/org/my-app/pull/12", branch: "feature/app" },
+      runtimeHandle: { id: "1686e4aaaeaa-app-1", kind: "tmux" },
+    });
+    const second = makeSession({
+      id: "backend-1",
+      projectId: "backend",
+      branch: "fix/backend",
+      pr: null,
+      runtimeHandle: { id: "backend-1", kind: "tmux" },
+    });
+    mockSessionManager.list.mockResolvedValue([second, first]);
+    mockPromptGroupMultiselect.mockResolvedValue(["app-1"]);
+
+    await program.parseAsync(["node", "test", "open"]);
+
+    expect(mockTmux).not.toHaveBeenCalled();
+    expect(mockPromptGroupMultiselect).toHaveBeenCalledTimes(1);
+    const [, grouped] = mockPromptGroupMultiselect.mock.calls[0] as [
+      string,
+      Record<string, { label: string }[]>,
+    ];
+    expect(Object.keys(grouped)).toEqual(["Backend (backend)", "My App (my-app)"]);
+    expect(grouped["My App (my-app)"]?.[0]?.label).toContain("app-1");
+    expect(grouped["My App (my-app)"]?.[0]?.label).toContain("feature/app");
+    expect(grouped["My App (my-app)"]?.[0]?.label).toContain("#12");
+    expect(mockExec).toHaveBeenCalledWith("open-iterm-tab", ["1686e4aaaeaa-app-1"]);
+  });
+
+  it("does not open anything when TTY picker selection is empty", async () => {
+    setTty(true, true);
+    mockSessionManager.list.mockResolvedValue([makeSession({ id: "app-1" })]);
+    mockPromptGroupMultiselect.mockResolvedValue([]);
+
+    await program.parseAsync(["node", "test", "open"]);
+
+    expect(mockExec).not.toHaveBeenCalled();
+    const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(output).toContain("No sessions to open");
   });
 
   it("opens sessions for a specific project", async () => {

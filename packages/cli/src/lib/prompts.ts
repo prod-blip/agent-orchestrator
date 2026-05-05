@@ -1,7 +1,8 @@
 import chalk from "chalk";
-import { confirm, isCancel, select, text, type Option } from "@clack/prompts";
+import { confirm, groupMultiselect, isCancel, select, text, type Option } from "@clack/prompts";
 
 type SelectOption<T extends string> = Option<T>;
+type MultiSelectOption<T extends string> = Option<T>;
 
 export async function promptConfirm(message: string, initialValue = true): Promise<boolean> {
   const result = await confirm({ message, initialValue });
@@ -24,6 +25,24 @@ export async function promptSelect<T extends string>(
   });
   if (isCancel(result)) {
     console.log(chalk.yellow("\nRequest Cancelled."));
+    process.exit(0);
+  }
+  return result;
+}
+
+export async function promptGroupMultiselect<T extends string>(
+  message: string,
+  options: Record<string, MultiSelectOption<T>[]>,
+  initialValues?: T[],
+): Promise<T[]> {
+  const result = await groupMultiselect({
+    message,
+    options,
+    required: false,
+    ...(initialValues !== undefined ? { initialValues } : {}),
+  });
+  if (isCancel(result)) {
+    console.log(chalk.yellow("\nCancelled."));
     process.exit(0);
   }
   return result;
