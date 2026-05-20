@@ -1,5 +1,31 @@
 # @aoagents/ao-plugin-agent-claude-code
 
+## 0.9.0
+
+### Patch Changes
+
+- a610601: Split Claude Code activity-detection logic out of `index.ts` into a dedicated `activity-detection.ts` module. Removes two unreachable switch branches (`case "permission_request"` → `waiting_input` and `case "error"` → `blocked`) that targeted JSONL types Claude never actually emits. `waiting_input` continues to flow through the AO activity-JSONL safety net added in #1903.
+
+  Closes the `blocked` gap for Claude Code: extend `readLastJsonlEntry` in core to also surface top-level `subtype` and `level` fields, and map `{type:"system", level:"error"}` → `blocked` in the cascade. This catches Claude's real api_error shape (`{type:"system", subtype:"api_error", level:"error", cause:{code:"ConnectionRefused"|"FailedToOpenSocket"|...}}`) so a session stuck in the API retry loop now reports `blocked` instead of `ready`. New fields on `readLastJsonlEntry` are additive and don't break existing callers (Codex, OpenCode, Aider).
+
+- 8c71bde: Harden Claude Code activity detection against five real-world edge cases identified during PR #1927's analysis:
+  1. **Bookkeeping types → false-active.** `file-history-snapshot`, `attachment`, `pr-link`, `queue-operation`, `permission-mode`, `last-prompt`, `ai-title`, `agent-color`, `agent-name`, `custom-title` were falling through to the `default` switch branch and showing as `active` for 30s after Claude finished a turn. They now correctly map to `ready`/`idle` by age. Likely root cause of "Claude looks busy when it's done" reports.
+  2. **Multi-session disambiguation.** `findLatestSessionFile` picked newest-mtime, which is the wrong session's JSONL when two Claude sessions are running in the same workspace. Now prefers the UUID-named file (`<projectDir>/<claudeSessionUuid>.jsonl`) when `session.metadata.claudeSessionUuid` is set, falling back to newest-mtime otherwise.
+  3. **Symlinked workspaces.** `toClaudeProjectPath` was a pure string transform — symlink paths produced different slugs than what Claude itself wrote. Added `resolveWorkspaceForClaude(path)` that runs `realpathSync` (with fallback) and used it in all three slug-computing sites (`getClaudeActivityState`, `getSessionInfo`, `getRestoreCommand`).
+  4. **Process regex too narrow.** `(?:^|\/)claude(?:\s|$)` was missing several legitimate install variants — `.claude`, `claude-code`, `claude.exe`, `claude.js`, and npm shims like `node /opt/.../@anthropic-ai/claude-code/cli.js`. Broadened to `(?:^|\/)(?:\.)?claude(?:[-.][\w-]+)*(?:[\s/]|$)`; still rejects look-alikes (`claudia`, `claudine`).
+  5. **Silent permission-denied.** `findLatestSessionFile` was swallowing every `readdir` error silently — a missing `~/.claude/projects/<slug>/` (ENOENT) is normal, but a permission-denied (EACCES/EPERM) or fd-exhausted (EMFILE) misconfig left the session looking permanently `idle` on the dashboard with zero telemetry. Now logs a single `console.warn` for non-ENOENT errors.
+
+  193/193 plugin tests pass. No public-API change. New helper `resolveWorkspaceForClaude` is re-exported from `index.ts` for downstream consumers.
+
+- Updated dependencies [73bed33]
+- Updated dependencies [a610601]
+- Updated dependencies [6d48022]
+- Updated dependencies [fcedb25]
+- Updated dependencies [94981dc]
+- Updated dependencies [2980570]
+- Updated dependencies [d5d0f07]
+  - @aoagents/ao-core@0.9.0
+
 ## 0.8.0
 
 ### Minor Changes
