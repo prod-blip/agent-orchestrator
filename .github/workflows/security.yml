@@ -77,7 +77,11 @@ jobs:
   dependency-review:
     name: Dependency Review
     runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
+    # The dependency-review-action requires GitHub's dependency graph to be
+    # enabled on the repository that runs the workflow. Forks used by AO agents
+    # may not have that setting enabled, so only run the blocking review in the
+    # canonical repository.
+    if: github.event_name == 'pull_request' && github.repository == 'ComposioHQ/agent-orchestrator'
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
